@@ -325,8 +325,9 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         and literal_parser.count("Virillio LGPL rebuild probe:") == 3
         and '#if __has_include("config.h")' in tinycc_header
         and "__VIRILLIO_LGPL_REBUILD_PROBE__ 20260906" in tinycc_preprocessor
-        and webkit_macros.count('if ((NOT _linked_into) OR ("${framework}" STREQUAL "${_linked_into}") OR (NOT "${_linked_into}" IN_LIST ${_target}_FRAMEWORKS))') == 1
+        and webkit_macros.count('if (NOT _linked_into OR framework STREQUAL _linked_into OR NOT _linked_into IN_LIST ${_target}_FRAMEWORKS)') == 1
         and 'if ((NOT _linked_into) OR (${framework} STREQUAL ${_linked_into}) OR (NOT ${_linked_into} IN_LIST ${_target}_FRAMEWORKS))' not in webkit_macros
+        and 'if ((NOT _linked_into) OR ("${framework}" STREQUAL "${_linked_into}") OR (NOT "${_linked_into}" IN_LIST ${_target}_FRAMEWORKS))' not in webkit_macros
         and zig_build == expected_zig_build,
         "Prepared source tree did not retain the audited local-library modifications",
     )

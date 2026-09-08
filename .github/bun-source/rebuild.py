@@ -217,12 +217,12 @@ def prepare(manifest, archives, workspace, probe, webkit_dir=None, webkit_report
         'command: `${stream} --console --stamp=$out --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build $step $args`,',
         'command: `${stream} --console --stamp=$out --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build -j1 $step $args`,',
     )
-    # CMake evaluates every OR argument. Quote the empty global-property value
-    # so current CMake can parse WebKit's intended framework-link condition.
+    # CMake evaluates every OR argument. Keep operands unexpanded so an empty
+    # global-property value cannot disappear while CMake parses the condition.
     replace_once(
         vendor / "WebKit/Source/cmake/WebKitMacros.cmake",
         'if ((NOT _linked_into) OR (${framework} STREQUAL ${_linked_into}) OR (NOT ${_linked_into} IN_LIST ${_target}_FRAMEWORKS))',
-        'if ((NOT _linked_into) OR ("${framework}" STREQUAL "${_linked_into}") OR (NOT "${_linked_into}" IN_LIST ${_target}_FRAMEWORKS))',
+        'if (NOT _linked_into OR framework STREQUAL _linked_into OR NOT _linked_into IN_LIST ${_target}_FRAMEWORKS)',
     )
     if probe:
         file = vendor / "WebKit/Source/JavaScriptCore/runtime/LiteralParser.h"
