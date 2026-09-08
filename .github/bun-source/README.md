@@ -14,6 +14,11 @@ commit, restricted to the documented source roots, and recorded as a content
 manifest. It is not claimed to reproduce the legacy filtered WebKit archive
 byte for byte.
 
+The recipe applies one recorded build-only WebKit CMake compatibility patch:
+it quotes a possibly empty framework-link property so current CMake can parse
+the source's intended condition. The public input manifest records the
+unmodified checkout and the rebuild provenance records the transformed file.
+
 The output artifact is a replacement-runtime candidate with its receipt,
 probe report, source-input reports, provenance, and checksums. It is not a
 Virillio Code installer. Application relinking, signing, notarization,

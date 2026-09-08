@@ -303,6 +303,7 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
     literal_parser = prepared_file(bun, "vendor/WebKit/Source/JavaScriptCore/runtime/LiteralParser.h").read_text()
     tinycc_header = prepared_file(bun, "vendor/tinycc/tcc.h").read_text()
     tinycc_preprocessor = prepared_file(bun, "vendor/tinycc/tccpp.c").read_text()
+    webkit_macros = prepared_file(bun, "vendor/WebKit/Source/cmake/WebKitMacros.cmake").read_text()
     zig_build = prepared_file(bun, "scripts/build/zig.ts").read_text()
     upstream_zig_build = source_member_text(bun_archive, sources["sources"][0]["root"], "scripts/build/zig.ts")
     expected_zig_build = replace_source_once(
@@ -324,6 +325,8 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         and literal_parser.count("Virillio LGPL rebuild probe:") == 3
         and '#if __has_include("config.h")' in tinycc_header
         and "__VIRILLIO_LGPL_REBUILD_PROBE__ 20260906" in tinycc_preprocessor
+        and webkit_macros.count('if ((NOT _linked_into) OR ("${framework}" STREQUAL "${_linked_into}") OR (NOT "${_linked_into}" IN_LIST ${_target}_FRAMEWORKS))') == 1
+        and 'if ((NOT _linked_into) OR (${framework} STREQUAL ${_linked_into}) OR (NOT ${_linked_into} IN_LIST ${_target}_FRAMEWORKS))' not in webkit_macros
         and zig_build == expected_zig_build,
         "Prepared source tree did not retain the audited local-library modifications",
     )
@@ -339,6 +342,7 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         "scripts/build/deps/tinycc.ts",
         "scripts/build/depVersionsHeader.ts",
         "vendor/WebKit/Source/JavaScriptCore/runtime/LiteralParser.h",
+        "vendor/WebKit/Source/cmake/WebKitMacros.cmake",
         "vendor/tinycc/tcc.h",
         "vendor/tinycc/tccpp.c",
         "bun.lock",
@@ -353,6 +357,7 @@ def validate_receipt(receipt, runtime_hash, runtime_size, webkit_manifest_hash):
     require(
         receipt.get("bunRevision") == BUN_REVISION
         and receipt.get("libraryProbeApplied") is True
+        and receipt.get("webkitCmakeCompatibilityPatchApplied") is True
         and receipt.get("buildCompleted") is True
         and receipt.get("webkitInput") == "public-checkout"
         and receipt.get("webkitManifestSHA256") == webkit_manifest_hash
@@ -566,6 +571,7 @@ def main():
             "zigBuildJobs": 1,
             "cmakeBuildParallelLevel": 1,
             "cargoBuildJobs": 1,
+            "webkitCmakeCompatibilityPatchApplied": True,
             "defaultDsymTargetBuilt": False,
             "codegenBun": reports["original-bun.json"][1]["executable"],
             "toolVersions": tool_versions(args.zig_path),
