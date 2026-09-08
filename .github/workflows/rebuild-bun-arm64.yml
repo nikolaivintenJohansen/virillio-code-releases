@@ -1,0 +1,143 @@
+name: Rebuild public Bun runtime (ARM64)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out the public rebuild recipe
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "arm64"
+
+      - name: Check the standard public runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          python -c 'import sys; assert sys.version_info >= (3, 12)'
+          command -v cmake
+          command -v git
+          command -v ninja
+          command -v perl
+          command -v rustup
+          df -h "$RUNNER_TEMP"
+          python -B - <<'PY'
+          from pathlib import Path
+          for file in sorted(Path(".github/bun-source").glob("*.py")):
+              compile(file.read_text(), str(file), "exec")
+              print(file.name)
+          PY
+
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup_bin="$(command -v rustup)"
+          export RUSTUP_HOME="$RUNNER_TEMP/virillio-rustup"
+          export CARGO_HOME="$RUNNER_TEMP/virillio-rustup-cargo"
+          mkdir -p "$RUSTUP_HOME" "$CARGO_HOME"
+          "$rustup_bin" toolchain install nightly-2025-12-10 --profile minimal --component rust-src
+          "$rustup_bin" run nightly-2025-12-10 rustc --version
+          toolchain_bin="$(dirname "$("$rustup_bin" which --toolchain nightly-2025-12-10 cargo)")"
+          test -x "$toolchain_bin/cargo"
+          test -x "$toolchain_bin/rustc"
+          echo "$toolchain_bin" >> "$GITHUB_PATH"
+          echo "RUSTUP_HOME=$RUSTUP_HOME" >> "$GITHUB_ENV"
+          echo "RUSTUP_TOOLCHAIN=nightly-2025-12-10" >> "$GITHUB_ENV"
+
+      - name: Fetch and verify public inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          builder_root="$RUNNER_TEMP/virillio-public-runtime"
+          reports="$builder_root/reports"
+          downloads="$builder_root/downloads"
+          archives="$builder_root/archives"
+          llvm="$builder_root/llvm"
+          zig="$builder_root/zig"
+          original_bun="$builder_root/original-bun/bun"
+          webkit="$builder_root/webkit"
+          workspace="$builder_root/rebuild"
+          mkdir -p "$reports"
+          python .github/bun-source/fetch-original-bun.py --download-dir "$downloads" --output "$original_bun" --report "$reports/original-bun.json"
+          python .github/bun-source/extract-llvm.py --download-dir "$downloads" --destination "$llvm" --report "$reports/llvm.json"
+          python .github/bun-source/fetch-zig.py --download-dir "$downloads" --destination "$zig" --report "$reports/zig.json"
+          python .github/bun-source/fetch-inputs.py --archives "$archives" --report "$reports/inputs.json"
+          python .github/bun-source/fetch-webkit.py --checkout "$webkit" --report "$reports/webkit.json"
+          llvm_bin="$llvm/LLVM-21.1.8-macOS-ARM64/bin"
+          test -x "$llvm_bin/clang"
+          echo "$llvm_bin" >> "$GITHUB_PATH"
+          echo "VIRILLIO_BUILDER_ROOT=$builder_root" >> "$GITHUB_ENV"
+          echo "VIRILLIO_REPORTS=$reports" >> "$GITHUB_ENV"
+          echo "VIRILLIO_ARCHIVES=$archives" >> "$GITHUB_ENV"
+          echo "VIRILLIO_WORKSPACE=$workspace" >> "$GITHUB_ENV"
+          echo "VIRILLIO_WEBKIT=$webkit" >> "$GITHUB_ENV"
+          echo "VIRILLIO_LLVM_BIN=$llvm_bin" >> "$GITHUB_ENV"
+          echo "ORIGINAL_BUN=$original_bun" >> "$GITHUB_ENV"
+          echo "BUN_ZIG_PATH=$zig" >> "$GITHUB_ENV"
+
+      - name: Prepare source and preseed Node headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/bun-source/rebuild.py --archives "$VIRILLIO_ARCHIVES" --workspace "$VIRILLIO_WORKSPACE" --bun "$ORIGINAL_BUN" --webkit-dir "$VIRILLIO_WEBKIT" --webkit-report "$VIRILLIO_REPORTS/webkit.json" --probe --jobs 1 --prepare-only
+          python .github/bun-source/fetch-node-headers.py --download-dir "$VIRILLIO_BUILDER_ROOT/downloads" --destination "$VIRILLIO_WORKSPACE/build-cache/nodejs-headers-24.3.0" --report "$VIRILLIO_REPORTS/node-headers.json"
+          rm -rf "$VIRILLIO_WEBKIT"
+
+      - name: Build the constrained runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$VIRILLIO_WORKSPACE/bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4"
+          build_home="$RUNNER_TEMP/virillio-build-home"
+          bun_install="$RUNNER_TEMP/virillio-bun-install"
+          mkdir -p "$build_home" "$bun_install"
+          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL BUILDKITE BUILDKITE_COMMIT CI GITHUB_ACTIONS GITHUB_SHA GITHUB_TOKEN GH_TOKEN
+          export HOME="$build_home"
+          export BUN_INSTALL="$bun_install"
+          export PATH="$VIRILLIO_LLVM_BIN:$PATH"
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          export CMAKE_BUILD_PARALLEL_LEVEL=1
+          export CARGO_HOME="$VIRILLIO_WORKSPACE/cargo-home"
+          export GIT_SHA=0d9b296af33f2b851fcbf4df3e9ec89751734ba4
+          test ! -e "$HOME/.bun/bin/bun"
+          test "$("$ORIGINAL_BUN" --version)" = "1.3.14"
+          test "$("$ORIGINAL_BUN" --revision)" = "1.3.14+0d9b296af"
+          "$ORIGINAL_BUN" install --frozen-lockfile
+          "$ORIGINAL_BUN" scripts/build.ts --profile=release-local --ci=on --build-dir=build/release-local --canary=off --cache-dir="$VIRILLIO_WORKSPACE/build-cache" --target=bun --target=check -j1
+
+      - name: Verify the runtime and stage evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime="$VIRILLIO_WORKSPACE/bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4/build/release-local/bun"
+          export PATH="$VIRILLIO_LLVM_BIN:$PATH"
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          python .github/bun-source/finish-rebuild.py --workspace "$VIRILLIO_WORKSPACE" --runtime "$runtime"
+          "$runtime" "$GITHUB_WORKSPACE/.github/bun-source/runtime-probe.ts" "$GITHUB_WORKSPACE/.github/bun-source/runtime-probe.c" > "$VIRILLIO_REPORTS/runtime-probe.json"
+          python .github/bun-source/write-provenance.py --runtime "$runtime" --workspace "$VIRILLIO_WORKSPACE" --archives "$VIRILLIO_ARCHIVES" --zig-path "$BUN_ZIG_PATH" --node-headers-dir "$VIRILLIO_WORKSPACE/build-cache/nodejs-headers-24.3.0" --source-dir "$GITHUB_WORKSPACE/.github/bun-source" --builder-root "$GITHUB_WORKSPACE" --workflow "$GITHUB_WORKSPACE/.github/workflows/rebuild-bun-arm64.yml" --input-report "$VIRILLIO_REPORTS/inputs.json" --webkit-report "$VIRILLIO_REPORTS/webkit.json" --llvm-report "$VIRILLIO_REPORTS/llvm.json" --original-bun-report "$VIRILLIO_REPORTS/original-bun.json" --zig-report "$VIRILLIO_REPORTS/zig.json" --node-headers-report "$VIRILLIO_REPORTS/node-headers.json" --probe-report "$VIRILLIO_REPORTS/runtime-probe.json" --artifact-dir "$VIRILLIO_BUILDER_ROOT/artifact"
+          test ! -e "$GITHUB_WORKSPACE/public-runtime-artifact"
+          mv "$VIRILLIO_BUILDER_ROOT/artifact" "$GITHUB_WORKSPACE/public-runtime-artifact"
+
+      - name: Upload the verified runtime candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: virillio-public-bun-arm64-0.1.0
+          path: public-runtime-artifact
+          if-no-files-found: error
+          retention-days: 1

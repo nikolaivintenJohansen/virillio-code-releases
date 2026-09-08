@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "bunRevision": "0d9b296af33f2b851fcbf4df3e9ec89751734ba4",
+  "target": "aarch64-apple-darwin",
+  "sources": [
+    {
+      "name": "Bun",
+      "file": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4.tar.gz",
+      "root": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4",
+      "url": "https://codeload.github.com/oven-sh/bun/tar.gz/0d9b296af33f2b851fcbf4df3e9ec89751734ba4",
+      "size": 54914493,
+      "sha256": "aa045c1f3ddd3eb41ed8452d8a73eaab3b3322386416ebb1b160a6af6978d3e5"
+    },
+    {
+      "name": "WebKit / JavaScriptCore",
+      "file": "webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz",
+      "root": "WebKit",
+      "repository": "https://github.com/oven-sh/WebKit",
+      "revision": "5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b",
+      "provenance": "webkit-source-provenance.json",
+      "size": 320310027,
+      "sha256": "44a54925b3ed2150effcd015f8b92f94a9b39681676a116f9273c3427e61c1c5"
+    },
+    {
+      "name": "TinyCC",
+      "file": "tinycc-12882eee073cfe5c7621bcfadf679e1372d4537b.tar.gz",
+      "root": "tinycc-12882eee073cfe5c7621bcfadf679e1372d4537b",
+      "url": "https://codeload.github.com/oven-sh/tinycc/tar.gz/12882eee073cfe5c7621bcfadf679e1372d4537b",
+      "size": 998268,
+      "sha256": "6b50485fcbbfa90a99c56e8e2b6a92014dcd34377d5edb23e1938dc9ec96f0aa"
+    }
+  ]
+}
