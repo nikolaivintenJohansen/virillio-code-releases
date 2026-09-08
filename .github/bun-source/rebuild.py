@@ -224,6 +224,13 @@ def prepare(manifest, archives, workspace, probe, webkit_dir=None, webkit_report
         'if ((NOT _linked_into) OR (${framework} STREQUAL ${_linked_into}) OR (NOT ${_linked_into} IN_LIST ${_target}_FRAMEWORKS))',
         'if (NOT _linked_into OR framework STREQUAL _linked_into OR NOT _linked_into IN_LIST ${_target}_FRAMEWORKS)',
     )
+    # WebKit intentionally exposes typed-array class information through info().
+    # Directly taking s_info's address breaks linkage with current Clang.
+    replace_once(
+        bun / "src/jsc/bindings/JSBuffer.cpp",
+        "    &JSC::JSUint8Array::s_info,",
+        "    JSC::JSUint8Array::info(),",
+    )
     if probe:
         file = vendor / "WebKit/Source/JavaScriptCore/runtime/LiteralParser.h"
         source = file.read_text()
@@ -240,6 +247,7 @@ def prepare(manifest, archives, workspace, probe, webkit_dir=None, webkit_report
         "bunRevision": manifest["bunRevision"],
         "libraryProbeApplied": probe,
         "webkitCmakeCompatibilityPatchApplied": True,
+        "typedArrayClassInfoCompatibilityPatchApplied": True,
         "webkitInput": "public-checkout" if webkit_dir else "archive",
         "webkitManifestSHA256": webkit_manifest_hash,
         "buildCompleted": False,

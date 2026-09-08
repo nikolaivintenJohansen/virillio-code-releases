@@ -14,10 +14,13 @@ commit, restricted to the documented source roots, and recorded as a content
 manifest. It is not claimed to reproduce the legacy filtered WebKit archive
 byte for byte.
 
-The recipe applies one recorded build-only WebKit CMake compatibility patch:
-it quotes a possibly empty framework-link property so current CMake can parse
-the source's intended condition. The public input manifest records the
-unmodified checkout and the rebuild provenance records the transformed file.
+The recipe applies two recorded build-only compatibility patches. One keeps a
+possibly empty WebKit framework-link property unexpanded while CMake parses
+the source's intended condition. The other replaces Bun's direct reference to
+WebKit's typed-array class-information symbol with WebKit's supplied `info()`
+accessor, preserving its linkage boundary on current Clang. The public input
+manifest records the unmodified checkout and the rebuild provenance records
+the transformed files.
 
 The output artifact is a replacement-runtime candidate with its receipt,
 probe report, source-input reports, provenance, and checksums. It is not a
