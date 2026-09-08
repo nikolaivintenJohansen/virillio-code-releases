@@ -125,7 +125,8 @@ def main():
     archive.unlink()
     clang = toolchain / "bin/clang"
     version = output([str(clang), "--version"])
-    if "clang version 21.1.8" not in version:
+    clang_version = version.splitlines()[0].partition(" (")[0]
+    if clang_version != "clang version 21.1.8":
         raise ValueError("Extracted LLVM compiler did not report version 21.1.8")
     for name in ("clang", "clang++", "llvm-ar", "llvm-ranlib", "llvm-strip", "dsymutil"):
         executable = toolchain / "bin" / name
@@ -136,7 +137,7 @@ def main():
         "archive": {"url": URL, "finalHost": final_host, "size": SIZE, "sha256": SHA256},
         "llvmRoot": ROOT,
         "extractedFiles": len(files),
-        "clangVersion": version.splitlines()[0],
+        "clangVersion": clang_version,
         "toolSHA256": {name: digest(toolchain / "bin" / name) for name in BINARIES},
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
