@@ -305,6 +305,7 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
     tinycc_preprocessor = prepared_file(bun, "vendor/tinycc/tccpp.c").read_text()
     webkit_macros = prepared_file(bun, "vendor/WebKit/Source/cmake/WebKitMacros.cmake").read_text()
     js_buffer = prepared_file(bun, "src/jsc/bindings/JSBuffer.cpp").read_text()
+    workaround_symbols = prepared_file(bun, "src/jsc/bindings/workaround-missing-symbols.cpp").read_text()
     zig_build = prepared_file(bun, "scripts/build/zig.ts").read_text()
     upstream_zig_build = source_member_text(bun_archive, sources["sources"][0]["root"], "scripts/build/zig.ts")
     expected_zig_build = replace_source_once(
@@ -322,6 +323,26 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         "    &JSC::JSUint8Array::s_info,",
         "    JSC::JSUint8Array::info(),",
     )
+    expected_workaround_symbols = replace_source_once(
+        source_member_text(bun_archive, sources["sources"][0]["root"], "src/jsc/bindings/workaround-missing-symbols.cpp"),
+        """// Provide our implementation
+// LLVM 20 used _LIBCPP_VERBOSE_ABORT_NOEXCEPT, LLVM 21+ uses _NOEXCEPT (always noexcept).
+void std::__libcpp_verbose_abort(char const* format, ...) noexcept""",
+        """// Match the header's exception specification:
+//   libc++ <= 19 (Apple SDK headers) declares it without noexcept,
+//   libc++ 20 uses _LIBCPP_VERBOSE_ABORT_NOEXCEPT,
+//   libc++ 21+ declares it noexcept unconditionally.
+#if defined(_LIBCPP_VERBOSE_ABORT_NOEXCEPT)
+#define BUN_VERBOSE_ABORT_NOEXCEPT _LIBCPP_VERBOSE_ABORT_NOEXCEPT
+#elif defined(_LIBCPP_VERSION) && _LIBCPP_VERSION < 200000
+#define BUN_VERBOSE_ABORT_NOEXCEPT
+#else
+#define BUN_VERBOSE_ABORT_NOEXCEPT noexcept
+#endif
+
+// Provide our implementation
+void std::__libcpp_verbose_abort(char const* format, ...) BUN_VERBOSE_ABORT_NOEXCEPT""",
+    )
     require(
         'kind: "local"' in tinycc_dependency
         and "vendor/tinycc" in tinycc_dependency
@@ -335,6 +356,7 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         and 'if ((NOT _linked_into) OR (${framework} STREQUAL ${_linked_into}) OR (NOT ${_linked_into} IN_LIST ${_target}_FRAMEWORKS))' not in webkit_macros
         and 'if ((NOT _linked_into) OR ("${framework}" STREQUAL "${_linked_into}") OR (NOT "${_linked_into}" IN_LIST ${_target}_FRAMEWORKS))' not in webkit_macros
         and js_buffer == expected_js_buffer
+        and workaround_symbols == expected_workaround_symbols
         and zig_build == expected_zig_build,
         "Prepared source tree did not retain the audited local-library modifications",
     )
@@ -352,6 +374,7 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         "vendor/WebKit/Source/JavaScriptCore/runtime/LiteralParser.h",
         "vendor/WebKit/Source/cmake/WebKitMacros.cmake",
         "src/jsc/bindings/JSBuffer.cpp",
+        "src/jsc/bindings/workaround-missing-symbols.cpp",
         "vendor/tinycc/tcc.h",
         "vendor/tinycc/tccpp.c",
         "bun.lock",
@@ -368,6 +391,7 @@ def validate_receipt(receipt, runtime_hash, runtime_size, webkit_manifest_hash):
         and receipt.get("libraryProbeApplied") is True
         and receipt.get("webkitCmakeCompatibilityPatchApplied") is True
         and receipt.get("typedArrayClassInfoCompatibilityPatchApplied") is True
+        and receipt.get("libcppVerboseAbortCompatibilityPatchApplied") is True
         and receipt.get("buildCompleted") is True
         and receipt.get("webkitInput") == "public-checkout"
         and receipt.get("webkitManifestSHA256") == webkit_manifest_hash
@@ -583,6 +607,7 @@ def main():
             "cargoBuildJobs": 1,
             "webkitCmakeCompatibilityPatchApplied": True,
             "typedArrayClassInfoCompatibilityPatchApplied": True,
+            "libcppVerboseAbortCompatibilityPatchApplied": True,
             "defaultDsymTargetBuilt": False,
             "codegenBun": reports["original-bun.json"][1]["executable"],
             "toolVersions": tool_versions(args.zig_path),

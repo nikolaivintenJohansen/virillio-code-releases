@@ -231,6 +231,28 @@ def prepare(manifest, archives, workspace, probe, webkit_dir=None, webkit_report
         "    &JSC::JSUint8Array::s_info,",
         "    JSC::JSUint8Array::info(),",
     )
+    # Apple SDK libc++ headers differ across releases. Match their published
+    # exception specification instead of assuming the current compiler's ABI.
+    replace_once(
+        bun / "src/jsc/bindings/workaround-missing-symbols.cpp",
+        """// Provide our implementation
+// LLVM 20 used _LIBCPP_VERBOSE_ABORT_NOEXCEPT, LLVM 21+ uses _NOEXCEPT (always noexcept).
+void std::__libcpp_verbose_abort(char const* format, ...) noexcept""",
+        """// Match the header's exception specification:
+//   libc++ <= 19 (Apple SDK headers) declares it without noexcept,
+//   libc++ 20 uses _LIBCPP_VERBOSE_ABORT_NOEXCEPT,
+//   libc++ 21+ declares it noexcept unconditionally.
+#if defined(_LIBCPP_VERBOSE_ABORT_NOEXCEPT)
+#define BUN_VERBOSE_ABORT_NOEXCEPT _LIBCPP_VERBOSE_ABORT_NOEXCEPT
+#elif defined(_LIBCPP_VERSION) && _LIBCPP_VERSION < 200000
+#define BUN_VERBOSE_ABORT_NOEXCEPT
+#else
+#define BUN_VERBOSE_ABORT_NOEXCEPT noexcept
+#endif
+
+// Provide our implementation
+void std::__libcpp_verbose_abort(char const* format, ...) BUN_VERBOSE_ABORT_NOEXCEPT""",
+    )
     if probe:
         file = vendor / "WebKit/Source/JavaScriptCore/runtime/LiteralParser.h"
         source = file.read_text()
@@ -248,6 +270,7 @@ def prepare(manifest, archives, workspace, probe, webkit_dir=None, webkit_report
         "libraryProbeApplied": probe,
         "webkitCmakeCompatibilityPatchApplied": True,
         "typedArrayClassInfoCompatibilityPatchApplied": True,
+        "libcppVerboseAbortCompatibilityPatchApplied": True,
         "webkitInput": "public-checkout" if webkit_dir else "archive",
         "webkitManifestSHA256": webkit_manifest_hash,
         "buildCompleted": False,

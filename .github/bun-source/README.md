@@ -14,13 +14,15 @@ commit, restricted to the documented source roots, and recorded as a content
 manifest. It is not claimed to reproduce the legacy filtered WebKit archive
 byte for byte.
 
-The recipe applies two recorded build-only compatibility patches. One keeps a
+The recipe applies three recorded build-only compatibility patches. One keeps a
 possibly empty WebKit framework-link property unexpanded while CMake parses
 the source's intended condition. The other replaces Bun's direct reference to
 WebKit's typed-array class-information symbol with WebKit's supplied `info()`
-accessor, preserving its linkage boundary on current Clang. The public input
-manifest records the unmodified checkout and the rebuild provenance records
-the transformed files.
+accessor, preserving its linkage boundary on current Clang. The third matches
+Bun's `__libcpp_verbose_abort` shim to the selected Apple SDK header's exception
+specification: no specification through libc++ 19, the libc++ 20 macro when it
+exists, and `noexcept` in libc++ 21 and later. The public input manifest records
+the unmodified checkout and the rebuild provenance records the transformed files.
 
 The output artifact is a replacement-runtime candidate with its receipt,
 probe report, source-input reports, provenance, and checksums. It is not a
