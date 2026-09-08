@@ -107,12 +107,14 @@ jobs:
           build_home="$RUNNER_TEMP/virillio-build-home"
           bun_install="$RUNNER_TEMP/virillio-bun-install"
           mkdir -p "$build_home" "$bun_install"
-          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL BUILDKITE BUILDKITE_COMMIT CI GITHUB_ACTIONS GITHUB_SHA GITHUB_TOKEN GH_TOKEN
+          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL BUILDKITE BUILDKITE_COMMIT CI GITHUB_ACTIONS GITHUB_SHA GITHUB_TOKEN GH_TOKEN BUN_CONFIG_REGISTRY NPM_CONFIG_REGISTRY npm_config_registry BUN_CONFIG_TOKEN NPM_CONFIG_TOKEN npm_config_token NPM_TOKEN npm_token
           export HOME="$build_home"
           export BUN_INSTALL="$bun_install"
+          export BUN_CONFIG_REGISTRY=https://registry.npmjs.org
           export PATH="$VIRILLIO_LLVM_BIN:$PATH"
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
           export CMAKE_BUILD_PARALLEL_LEVEL=1
+          export CARGO_BUILD_JOBS=1
           export CARGO_HOME="$VIRILLIO_WORKSPACE/cargo-home"
           export GIT_SHA=0d9b296af33f2b851fcbf4df3e9ec89751734ba4
           test ! -e "$HOME/.bun/bin/bun"

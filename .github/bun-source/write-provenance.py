@@ -268,6 +268,21 @@ def source_member_digest(archive, root, relative):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def source_member_text(archive, root, relative):
+    regular(archive, "Pinned Bun source archive")
+    with tarfile.open(archive) as source:
+        member = source.getmember(root + "/" + relative)
+        require(member.isfile(), "Pinned Bun source member was not a file: " + relative)
+        stream = source.extractfile(member)
+        require(stream is not None, "Pinned Bun source member could not be read: " + relative)
+        return stream.read().decode()
+
+
+def replace_source_once(source, before, after):
+    require(source.count(before) == 1, "Pinned Bun source did not match its audited low-memory patch")
+    return source.replace(before, after)
+
+
 def prepared_file(workspace, relative):
     result = workspace.joinpath(*relative.split("/"))
     require(result.resolve().is_relative_to(workspace), "Prepared source file escaped its workspace")
@@ -278,7 +293,7 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
     bun = workspace / sources["sources"][0]["root"]
     require(bun.is_dir() and not bun.is_symlink(), "Prepared Bun source tree is missing")
     bun_archive = archives / sources["sources"][0]["file"]
-    for relative in ("bun.lock", "package.json", "scripts/build/zig.ts"):
+    for relative in ("bun.lock", "package.json"):
         require(
             digest(prepared_file(bun, relative)) == source_member_digest(bun_archive, sources["sources"][0]["root"], relative),
             "Prepared Bun source unexpectedly changed outside the audited patch set: " + relative,
@@ -288,6 +303,18 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
     literal_parser = prepared_file(bun, "vendor/WebKit/Source/JavaScriptCore/runtime/LiteralParser.h").read_text()
     tinycc_header = prepared_file(bun, "vendor/tinycc/tcc.h").read_text()
     tinycc_preprocessor = prepared_file(bun, "vendor/tinycc/tccpp.c").read_text()
+    zig_build = prepared_file(bun, "scripts/build/zig.ts").read_text()
+    upstream_zig_build = source_member_text(bun_archive, sources["sources"][0]["root"], "scripts/build/zig.ts")
+    expected_zig_build = replace_source_once(
+        upstream_zig_build,
+        'command: `${stream} ${consoleMode ? "--console" : "--zig-progress"} --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build $step $args`,',
+        'command: `${stream} ${consoleMode ? "--console" : "--zig-progress"} --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build -j1 $step $args`,',
+    )
+    expected_zig_build = replace_source_once(
+        expected_zig_build,
+        'command: `${stream} --console --stamp=$out --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build $step $args`,',
+        'command: `${stream} --console --stamp=$out --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build -j1 $step $args`,',
+    )
     require(
         'kind: "local"' in tinycc_dependency
         and "vendor/tinycc" in tinycc_dependency
@@ -296,13 +323,15 @@ def validate_prepared_source(workspace, archives, sources, zig_path):
         and 'dep.name === "tinycc"' in version_header
         and literal_parser.count("Virillio LGPL rebuild probe:") == 3
         and '#if __has_include("config.h")' in tinycc_header
-        and "__VIRILLIO_LGPL_REBUILD_PROBE__ 20260906" in tinycc_preprocessor,
+        and "__VIRILLIO_LGPL_REBUILD_PROBE__ 20260906" in tinycc_preprocessor
+        and zig_build == expected_zig_build,
         "Prepared source tree did not retain the audited local-library modifications",
     )
     ninja = prepared_file(bun, "build/release-local/build.ninja").read_text()
     require(
         "-Dllvm_codegen_threads=1" in ninja
         and "ZIG_PARALLEL_SEMA=1" in ninja
+        and "$zig build -j1 $step $args" in ninja
         and str((zig_path.resolve() / "zig")) in ninja,
         "Build configuration did not retain the constrained verified Zig setup",
     )
@@ -353,6 +382,32 @@ def validate_probe(probe):
 def hash_recipe(source_dir, workflow):
     files = {file.name for file in source_dir.iterdir() if file.is_file() or file.is_symlink()}
     require(files == EXPECTED_SOURCE_FILES, "Public runtime recipe contains an unexpected source file set")
+    workflow_text = regular(workflow, "Workflow").read_text()
+    unset_lines = [line.strip() for line in workflow_text.splitlines() if line.strip().startswith("unset ")]
+    require(
+        workflow_text.count("export CMAKE_BUILD_PARALLEL_LEVEL=1") == 1
+        and workflow_text.count("export CARGO_BUILD_JOBS=1") == 1
+        and workflow_text.count("--target=bun --target=check -j1") == 1,
+        "Public workflow did not retain every required low-memory build constraint",
+    )
+    require(
+        workflow_text.count("export BUN_CONFIG_REGISTRY=https://registry.npmjs.org") == 1
+        and len(unset_lines) == 1
+        and all(
+            token in unset_lines[0]
+            for token in (
+                "BUN_CONFIG_REGISTRY",
+                "NPM_CONFIG_REGISTRY",
+                "npm_config_registry",
+                "BUN_CONFIG_TOKEN",
+                "NPM_CONFIG_TOKEN",
+                "npm_config_token",
+                "NPM_TOKEN",
+                "npm_token",
+            )
+        ),
+        "Public workflow did not retain its public registry and token isolation",
+    )
     hashes = {name: digest(source_dir / name) for name in sorted(EXPECTED_SOURCE_FILES)}
     hashes["workflow/rebuild-bun-arm64.yml"] = digest(workflow)
     return hashes
@@ -508,7 +563,9 @@ def main():
             "ciConfiguration": True,
             "ninjaTargets": ["bun", "check"],
             "ninjaJobs": 1,
+            "zigBuildJobs": 1,
             "cmakeBuildParallelLevel": 1,
+            "cargoBuildJobs": 1,
             "defaultDsymTargetBuilt": False,
             "codegenBun": reports["original-bun.json"][1]["executable"],
             "toolVersions": tool_versions(args.zig_path),

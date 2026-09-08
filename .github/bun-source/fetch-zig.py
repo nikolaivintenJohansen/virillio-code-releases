@@ -16,7 +16,7 @@ ARCHIVE = "bootstrap-aarch64-macos-none-ReleaseSafe.zip"
 URL = "https://github.com/oven-sh/zig/releases/download/autobuild-04e7f6ac1e009525bc00934f20199c68f04e0a24/" + ARCHIVE
 SHA256 = "b4eaff25ff3b665a48629c4f08ac8bc5f7da8d925307aec8bf43d2cd77355882"
 SIZE = 97479085
-ROOT = "bootstrap-aarch64-macos-none"
+ROOT = "bootstrap-aarch64-macos-none-ReleaseSafe"
 CHUNK_SIZE = 1024 * 1024
 
 

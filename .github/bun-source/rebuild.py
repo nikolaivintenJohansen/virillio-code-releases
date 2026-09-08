@@ -204,6 +204,19 @@ def prepare(manifest, archives, workspace, probe, webkit_dir=None, webkit_report
         '#define _DARWIN_C_SOURCE\n#include "config.h"',
         '#define _DARWIN_C_SOURCE\n#if __has_include("config.h")\n#include "config.h"\n#endif',
     )
+    # The public runner is deliberately memory constrained. Keep Zig's outer
+    # build scheduler to one worker in addition to Bun's upstream CI codegen
+    # setting and ZIG_PARALLEL_SEMA=1.
+    replace_once(
+        bun / "scripts/build/zig.ts",
+        'command: `${stream} ${consoleMode ? "--console" : "--zig-progress"} --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build $step $args`,',
+        'command: `${stream} ${consoleMode ? "--console" : "--zig-progress"} --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build -j1 $step $args`,',
+    )
+    replace_once(
+        bun / "scripts/build/zig.ts",
+        'command: `${stream} --console --stamp=$out --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build $step $args`,',
+        'command: `${stream} --console --stamp=$out --env=ZIG_LOCAL_CACHE_DIR=$zig_local_cache --env=ZIG_GLOBAL_CACHE_DIR=$zig_global_cache${parallelSema} $zig build -j1 $step $args`,',
+    )
     if probe:
         file = vendor / "WebKit/Source/JavaScriptCore/runtime/LiteralParser.h"
         source = file.read_text()
