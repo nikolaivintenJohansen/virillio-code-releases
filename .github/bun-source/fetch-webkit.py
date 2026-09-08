@@ -68,10 +68,13 @@ def main():
         raise ValueError("Choose a fresh WebKit checkout directory")
     checkout.mkdir(parents=True)
     roots = provenance["includedRoots"]
+    if any(not isinstance(root, str) or not root or "/" in root or root in (".", "..") for root in roots):
+        raise ValueError("WebKit include roots must be top-level names")
+    patterns = ["/" + root for root in roots]
     command(["git", "init", "--quiet", str(checkout)])
     command(["git", "-C", str(checkout), "remote", "add", "origin", repository])
     command(["git", "-C", str(checkout), "sparse-checkout", "init", "--no-cone"])
-    command(["git", "-C", str(checkout), "sparse-checkout", "set", "--no-cone", *roots])
+    command(["git", "-C", str(checkout), "sparse-checkout", "set", "--no-cone", *patterns])
     command(["git", "-C", str(checkout), "-c", "protocol.version=2", "fetch", "--depth=1", "--filter=blob:none", "origin", revision])
     command(["git", "-C", str(checkout), "-c", "advice.detachedHead=false", "checkout", "--detach", "FETCH_HEAD"])
     actual_revision = command(["git", "-C", str(checkout), "rev-parse", "HEAD"])
