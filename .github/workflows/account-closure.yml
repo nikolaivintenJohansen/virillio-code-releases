@@ -22,12 +22,13 @@ jobs:
           if len(token) < 43:
               sys.exit('The scheduler credential is not configured.')
           request = urllib.request.Request('https://virillio.com/api/internal/account-closure',
-              method='POST', data=b'', headers={'Authorization': 'Bearer '+token})
+              method='POST', data=b'', headers={'Authorization': 'Bearer '+token, 'User-Agent': 'Virillio-Account-Closure/1.0 (+https://virillio.com/mobile/support)', 'Accept': 'application/json'})
           try:
               with urllib.request.urlopen(request, timeout=240) as response:
                   result = json.load(response)
               print('Completed:', result.get('completed', 0), 'Blocked:', result.get('blocked', 0))
           except urllib.error.HTTPError as error:
+              print('Response type:', error.headers.get('Content-Type', ''), 'Gateway mitigation:', error.headers.get('cf-mitigated', 'none'))
               sys.exit('The account deletion processor requires attention (HTTP '+str(error.code)+').')
           except Exception:
               sys.exit('The account deletion processor could not be reached; no completion was assumed.')
