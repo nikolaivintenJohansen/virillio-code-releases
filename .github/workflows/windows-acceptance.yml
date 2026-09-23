@@ -1,0 +1,22 @@
+name: Windows installer acceptance
+on:
+  push:
+    branches: [windows-acceptance]
+    paths: ['.github/workflows/windows-acceptance.yml', '.github/windows-acceptance/**']
+permissions:
+  contents: read
+concurrency:
+  group: windows-installer-acceptance
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Verify disposable Windows runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [pscustomobject]@{ windows = [Environment]::OSVersion.VersionString; interactive = [Environment]::UserInteractive; session = (Get-Process -Id $PID).SessionId } | ConvertTo-Json
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,TotalVisibleMemorySize,FreePhysicalMemory
+          Write-Output 'Disposable Windows runner available'
