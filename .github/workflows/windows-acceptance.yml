@@ -12,6 +12,10 @@ jobs:
   verify:
     runs-on: windows-2025
     timeout-minutes: 45
+    # GitHub requires push permission to see draft releases. The token is passed
+    # only to the download step and is removed before application execution.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
