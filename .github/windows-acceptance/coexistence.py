@@ -167,10 +167,25 @@ try:
         check(name + " official installer checksum", digest(file) == expected_hash)
         listing = subprocess.run(["C:\\Program Files\\7-Zip\\7z.exe", "l", str(file)], env=env, capture_output=True, text=True, timeout=30)
         (evidence / (name + "-installer-layout.txt")).write_text(listing.stdout, encoding="utf-8")
-        run_installer(file, ["/S", "/currentuser"], name + " installation")
-        registration = next(r for r in registrations() if name.lower() in r["DisplayName"].lower())
-        icon = registration["DisplayIcon"].strip('"').split(",")[0].strip('"')
-        executable = Path(icon)
+        if name == "Freebuff":
+            # Both official 0.0.138 installers crash in their System.dll before
+            # Virillio is executed on this runner. Exercise the unchanged real
+            # application payload without claiming Freebuff installer acceptance.
+            unpack = root / "freebuff-installer-payload"
+            destination = Path(os.environ["LOCALAPPDATA"]) / "Programs/Freebuff-acceptance"
+            for command in [
+                ["C:\\Program Files\\7-Zip\\7z.exe", "x", "-y", "-o" + str(unpack), str(file), "$PLUGINSDIR\\app-64.7z"],
+                ["C:\\Program Files\\7-Zip\\7z.exe", "x", "-y", "-o" + str(destination), str(unpack / "$PLUGINSDIR/app-64.7z")],
+            ]:
+                extracted = subprocess.run(command, env=env, capture_output=True, text=True, timeout=180)
+                check("Extract official Freebuff payload", extracted.returncode == 0)
+            executable = destination / "Freebuff.exe"
+            report["freebuffSetup"] = "Unmodified official 0.0.138 x64-baseline application payload extracted; upstream NSIS installer crashes in System.dll on the runner."
+        else:
+            run_installer(file, ["/S", "/currentuser"], name + " installation")
+            registration = next(r for r in registrations() if name.lower() in r["DisplayName"].lower())
+            icon = registration["DisplayIcon"].strip('"').split(",")[0].strip('"')
+            executable = Path(icon)
         check(name + " executable exists", executable.is_file(), path=str(executable))
         foreign[name] = {"root": executable.parent, "executable": executable}
         subprocess.Popen([str(executable)], env=env)
@@ -231,7 +246,7 @@ try:
     check("Owned executable removed", not executable.exists())
     check("Unknown installation file preserved", unknown.read_text() == "Preserve unknown files.\n")
     compare_foreign(before, "after-uninstall")
-    report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, limitations=["Third-party applications remained at initial unauthenticated screens; no coding workload was submitted.", "Affected-release recovery, WSL, reboot and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
+    report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, limitations=["Third-party applications remained at initial unauthenticated screens; no coding workload was submitted.", "Freebuff ran from its official extracted application payload because its own installer crashes in System.dll on this runner.", "Affected-release recovery, WSL, reboot and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
 except Exception as error:
     report.update(status="failed", error=str(error))
     try:
