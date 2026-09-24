@@ -83,14 +83,89 @@ def run_installer(file, args, name, timeout=900):
     print("Starting " + name, flush=True)
     started = time.monotonic()
     process = subprocess.Popen([str(file), *args], env=env)
+    observed = started
     while process.poll() is None and time.monotonic() - started < timeout:
         time.sleep(2)
+        if time.monotonic() - observed >= 30:
+            windows = installer_windows(process.pid)
+            print(name + " windows: " + json.dumps(windows), flush=True)
+            report["latestInstallerWindows"] = windows
+            save()
+            screenshot(name + "-progress")
+            if any("Installation could not verify ownership" in text for window in windows for text in window["Children"]):
+                audit_installed_payload()
+                raise RuntimeError(name + " stopped at the installer safety dialog")
+            observed = time.monotonic()
     if process.poll() is None:
         # Leave the timed-out process for runner teardown; do not hide a dialog by killing it.
         report["timeoutProcesses"] = processes()
         screenshot(name + "-timeout")
         raise RuntimeError(name + " timed out")
     check(name + " exit", process.returncode == 0, exitCode=process.returncode, seconds=round(time.monotonic() - started, 2))
+
+def installer_windows(process_id):
+    script = r'''
+Add-Type @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public class InstallerWindow {
+  public long Handle; public int Pid; public string Text; public List<string> Children = new List<string>();
+}
+public static class InstallerWindows {
+  public delegate bool Callback(IntPtr handle, IntPtr data);
+  [DllImport("user32.dll")] static extern bool EnumWindows(Callback callback, IntPtr data);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, Callback callback, IntPtr data);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr handle);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr handle, out uint pid);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr handle, StringBuilder text, int maximum);
+  static string Text(IntPtr handle) { var text = new StringBuilder(4096); GetWindowText(handle, text, text.Capacity); return text.ToString(); }
+  public static List<InstallerWindow> Read(int[] ids) {
+    var result = new List<InstallerWindow>();
+    EnumWindows((handle, data) => {
+      uint pid; GetWindowThreadProcessId(handle, out pid);
+      if (!IsWindowVisible(handle) || Array.IndexOf(ids, (int)pid) < 0) return true;
+      var item = new InstallerWindow { Handle=handle.ToInt64(), Pid=(int)pid, Text=Text(handle) };
+      EnumChildWindows(handle, (child, unused) => { var text=Text(child); if (text.Length > 0) item.Children.Add(text); return true; }, IntPtr.Zero);
+      result.Add(item); return true;
+    }, IntPtr.Zero);
+    return result;
+  }
+}
+'@
+$ids = New-Object 'System.Collections.Generic.List[int]'
+$ids.Add(INSTALLER_PROCESS_ID)
+$processes = @(Get-CimInstance Win32_Process)
+for($depth=0;$depth -lt 4;$depth++) { foreach($item in $processes) { if($ids.Contains([int]$item.ParentProcessId) -and -not $ids.Contains([int]$item.ProcessId)) { $ids.Add([int]$item.ProcessId) } } }
+ConvertTo-Json -InputObject @([InstallerWindows]::Read($ids.ToArray())) -Depth 5
+'''
+    return json.loads(ps(script.replace("INSTALLER_PROCESS_ID", str(process_id))))
+
+def audit_installed_payload():
+    directory = Path(os.environ["LOCALAPPDATA"]) / "Programs/virillio-code"
+    marker = directory / ".virillio-install.json"
+    if not marker.is_file():
+        report["payloadAudit"] = {"markerExists": False}
+        save()
+        return
+    manifest = json.loads(marker.read_text(encoding="utf-8-sig"))
+    failures = []
+    for item in manifest["files"]:
+        file = directory / item["path"]
+        actual = digest(file) if file.is_file() else None
+        if actual != item["sha256"]:
+            failures.append({"path": item["path"], "expected": item["sha256"], "actual": actual})
+    report["payloadAudit"] = {"markerExists": True, "files": len(manifest["files"]), "failures": failures}
+    save()
+    print("Installed payload mismatches: " + json.dumps(failures), flush=True)
+
+def block_foreign_updates(directory, name):
+    # Keep the baseline stable: the unmodified Freebuff application otherwise
+    # replaces itself and its PIDs with an auto-update during Virillio setup.
+    quoted = str(directory).replace("'", "''")
+    result = json.loads(ps("$files=@(Get-ChildItem -LiteralPath '" + quoted + "' -Filter *.exe -Recurse -File); foreach($file in $files) { New-NetFirewallRule -DisplayName ('Virillio acceptance baseline " + name + " '+$file.FullName) -Direction Outbound -Program $file.FullName -Action Block -Profile Any | Out-Null }; ConvertTo-Json -InputObject @{executables=$files.Count;rules=@(Get-NetFirewallRule -DisplayName 'Virillio acceptance baseline " + name + " *').Count}"))
+    check(name + " network disabled for a stable test baseline", result["executables"] > 0 and result["rules"] == result["executables"], **result)
 
 def wait_for_window(directory, timeout=120):
     deadline = time.monotonic() + timeout
@@ -188,6 +263,7 @@ try:
             executable = Path(icon)
         check(name + " executable exists", executable.is_file(), path=str(executable))
         foreign[name] = {"root": executable.parent, "executable": executable}
+        block_foreign_updates(executable.parent, name)
         subprocess.Popen([str(executable)], env=env)
         windows = wait_for_window(executable.parent)
         check(name + " visible window", bool(windows), windows=windows)
@@ -246,7 +322,7 @@ try:
     check("Owned executable removed", not executable.exists())
     check("Unknown installation file preserved", unknown.read_text() == "Preserve unknown files.\n")
     compare_foreign(before, "after-uninstall")
-    report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, limitations=["Third-party applications remained at initial unauthenticated screens; no coding workload was submitted.", "Freebuff ran from its official extracted application payload because its own installer crashes in System.dll on this runner.", "Affected-release recovery, WSL, reboot and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
+    report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, limitations=["Third-party applications remained at initial unauthenticated screens with application network access blocked to prevent self-updates; no coding workload was submitted.", "Freebuff ran from its official extracted application payload because its own installer crashes in System.dll on this runner.", "Affected-release recovery, WSL, reboot and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
 except Exception as error:
     report.update(status="failed", error=str(error))
     try:
