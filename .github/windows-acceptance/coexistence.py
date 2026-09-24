@@ -160,11 +160,13 @@ try:
     check("Clean disposable host", not registrations())
     for name, url, expected_hash in [
         ("OpenCode", "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-win-x64.exe", "3bd1a81d8fcb377a6bda60a9abf8d412aca1c9c702218ddbbdf7c7b09deaa739"),
-        ("Freebuff", "https://github.com/CodebuffAI/codebuff-community/releases/download/freebuff-desktop-v0.0.138/Freebuff-0.0.138-win-x64.exe", "81068ee794352619ac59dcb32cb63b4bd5ca751673782803b6bfed52fb90c5c7"),
+        ("Freebuff", "https://github.com/CodebuffAI/codebuff-community/releases/download/freebuff-desktop-v0.0.138/Freebuff-0.0.138-win-x64-baseline.exe", "a9cb382379d7a8cbfa3e13a81efd793244c8022b43e6ff0792f0e49d144e785b"),
     ]:
         file = root / (name + "-Setup.exe")
         urllib.request.urlretrieve(url, file)
         check(name + " official installer checksum", digest(file) == expected_hash)
+        listing = subprocess.run(["C:\\Program Files\\7-Zip\\7z.exe", "l", str(file)], env=env, capture_output=True, text=True, timeout=30)
+        (evidence / (name + "-installer-layout.txt")).write_text(listing.stdout, encoding="utf-8")
         run_installer(file, ["/S", "/currentuser"], name + " installation")
         registration = next(r for r in registrations() if name.lower() in r["DisplayName"].lower())
         icon = registration["DisplayIcon"].strip('"').split(",")[0].strip('"')
@@ -238,6 +240,10 @@ except Exception as error:
         report["failureRegistrations"] = registrations()
     except Exception as capture_error:
         report["captureError"] = str(capture_error)
+    try:
+        report["applicationErrors"] = ps("Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-30);Id=1000,1001} -ErrorAction SilentlyContinue | Select-Object TimeCreated,ProviderName,Message | ConvertTo-Json -Depth 4")
+    except Exception:
+        pass
     raise
 finally:
     save()
