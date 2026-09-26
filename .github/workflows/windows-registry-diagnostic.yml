@@ -1,0 +1,22 @@
+name: Legacy registry diagnostic
+on:
+  push:
+    branches: [windows-acceptance]
+    paths: ['.github/workflows/windows-registry-diagnostic.yml', '.github/registry-diagnostic.py']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python .github/registry-diagnostic.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: legacy-registry-diagnostic
+          path: ${{ runner.temp }}/registry-diagnostic/result.json
+          retention-days: 7
