@@ -1,0 +1,39 @@
+name: Public Windows download integrity
+on:
+  push:
+    branches: [windows-acceptance]
+    paths: ['.github/workflows/public-download.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download without authentication and verify complete bytes
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, urllib.request
+          base = 'https://github.com/nikolaivintenJohansen/virillio-code-releases/releases/download/v0.1.3-windows-beta.4/'
+          filename = 'Virillio-Code-0.1.3-x64-Setup.exe'
+          expected = 'aedcaf3c75ac8f27cb8f3cbf7066d799fff9b294989dd6b5fcd50621603c905f'
+          digest = hashlib.sha256()
+          size = 0
+          with urllib.request.urlopen(base + filename, timeout=120) as response:
+              for chunk in iter(lambda: response.read(8 * 1024 * 1024), b''):
+                  digest.update(chunk)
+                  size += len(chunk)
+          assert digest.hexdigest() == expected and size == 629531393
+          with urllib.request.urlopen(base + 'SHA256SUMS', timeout=60) as response:
+              checksums = response.read()
+          assert hashlib.sha256(checksums).hexdigest() == '2bee46bacb91230a9e1bca792a9c34f3b0eb9781b03a71f45a0c01196935fa14'
+          result = {'status': 'passed', 'installerSHA256': expected, 'bytes': size, 'installerUrl': base + filename, 'anonymousDownloadVerified': True, 'anonymousChecksumsVerified': True, 'checksumsSHA256': hashlib.sha256(checksums).hexdigest()}
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'public-download'
+          path.mkdir()
+          (path / 'result.json').write_text(json.dumps(result, indent=2))
+          print(json.dumps(result))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-download-integrity
+          path: ${{ runner.temp }}/public-download/result.json
+          retention-days: 7
