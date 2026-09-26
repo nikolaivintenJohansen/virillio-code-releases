@@ -21,7 +21,7 @@ root = Path(os.environ["RUNNER_TEMP"]) / "virillio-acceptance"
 evidence = root / "evidence"
 evidence.mkdir(exist_ok=True)
 candidate = root / "Virillio-Code-0.1.3-x64-Setup.exe"
-expected = "8d990f1cc879e77499312d702a69b8e40be39def0b3b68caaa5ec806f19c38f0"
+expected = "aedcaf3c75ac8f27cb8f3cbf7066d799fff9b294989dd6b5fcd50621603c905f"
 scenario = os.environ.get("VIRILLIO_ACCEPTANCE_SCENARIO", "fresh")
 assert scenario in ("fresh", "legacy")
 report = {"status": "running", "installerSHA256": expected, "host": "disposable-github-windows-2025", "scenario": scenario, "checks": []}

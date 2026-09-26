@@ -32,10 +32,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $destination = Join-Path $env:RUNNER_TEMP 'virillio-acceptance'
           New-Item -ItemType Directory -Path $destination -Force | Out-Null
-          gh release download v0.1.3-windows-beta.3 --repo nikolaivintenJohansen/virillio-code-releases --pattern Virillio-Code-0.1.3-x64-Setup.exe --dir $destination
+          gh release download v0.1.3-windows-beta.4 --repo nikolaivintenJohansen/virillio-code-releases --pattern Virillio-Code-0.1.3-x64-Setup.exe --dir $destination
           if ($LASTEXITCODE -ne 0) { throw 'Candidate download failed' }
           $hash = (Get-FileHash -LiteralPath (Join-Path $destination 'Virillio-Code-0.1.3-x64-Setup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '8d990f1cc879e77499312d702a69b8e40be39def0b3b68caaa5ec806f19c38f0') { throw 'Candidate checksum mismatch' }
+          if ($hash -ne 'aedcaf3c75ac8f27cb8f3cbf7066d799fff9b294989dd6b5fcd50621603c905f') { throw 'Candidate checksum mismatch' }
       - name: Exercise real installers and applications
         shell: pwsh
         env:
