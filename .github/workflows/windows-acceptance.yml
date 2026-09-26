@@ -12,6 +12,10 @@ jobs:
   verify:
     runs-on: windows-2025
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [fresh, legacy]
     # GitHub requires push permission to see draft releases. The token is passed
     # only to the download step and is removed before application execution.
     permissions:
@@ -28,18 +32,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $destination = Join-Path $env:RUNNER_TEMP 'virillio-acceptance'
           New-Item -ItemType Directory -Path $destination -Force | Out-Null
-          gh release download v0.1.3-windows-beta.1 --repo nikolaivintenJohansen/virillio-code-releases --pattern Virillio-Code-0.1.3-x64-Setup.exe --dir $destination
+          gh release download v0.1.3-windows-beta.2 --repo nikolaivintenJohansen/virillio-code-releases --pattern Virillio-Code-0.1.3-x64-Setup.exe --dir $destination
           if ($LASTEXITCODE -ne 0) { throw 'Candidate download failed' }
           $hash = (Get-FileHash -LiteralPath (Join-Path $destination 'Virillio-Code-0.1.3-x64-Setup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '21c3a280d573ba7bf18cc000fca95235624a6692edcf91b1e3b96f2670e16ede') { throw 'Candidate checksum mismatch' }
+          if ($hash -ne 'cb6892e99244b6aee7e189059220b07aad32361980b6cac632e86eac5f1a7a12') { throw 'Candidate checksum mismatch' }
       - name: Exercise real installers and applications
         shell: pwsh
+        env:
+          VIRILLIO_ACCEPTANCE_SCENARIO: ${{ matrix.scenario }}
         run: python .github/windows-acceptance/coexistence.py
       - name: Retain test evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-coexistence-evidence
+          name: windows-coexistence-evidence-${{ matrix.scenario }}
           path: ${{ runner.temp }}/virillio-acceptance/evidence/
           if-no-files-found: warn
           retention-days: 7

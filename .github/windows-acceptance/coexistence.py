@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sqlite3
 import time
@@ -19,8 +20,10 @@ root = Path(os.environ["RUNNER_TEMP"]) / "virillio-acceptance"
 evidence = root / "evidence"
 evidence.mkdir(exist_ok=True)
 candidate = root / "Virillio-Code-0.1.3-x64-Setup.exe"
-expected = "21c3a280d573ba7bf18cc000fca95235624a6692edcf91b1e3b96f2670e16ede"
-report = {"status": "running", "installerSHA256": expected, "host": "disposable-github-windows-2025", "checks": []}
+expected = "cb6892e99244b6aee7e189059220b07aad32361980b6cac632e86eac5f1a7a12"
+scenario = os.environ.get("VIRILLIO_ACCEPTANCE_SCENARIO", "fresh")
+assert scenario in ("fresh", "legacy")
+report = {"status": "running", "installerSHA256": expected, "host": "disposable-github-windows-2025", "scenario": scenario, "checks": []}
 env = {k: v for k, v in os.environ.items() if not any(part in k.upper() for part in ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "GITHUB", "ACTIONS"))}
 env.update(OPENCODE_DISABLE_AUTOUPDATE="true", OPENCODE_DISABLE_MODELS_FETCH="true")
 
@@ -30,6 +33,17 @@ def digest(file):
 
 def save():
     (evidence / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+
+def save_startup_diagnostics():
+    profile = Path(os.environ["APPDATA"]) / "io.virillio.code.desktop"
+    password = profile / "backend/state/opencode/password"
+    secret = password.read_text().strip() if password.is_file() else ""
+    sensitive = [secret, base64.b64encode(("opencode:" + secret).encode()).decode()] if secret else []
+    for file in sorted((profile / "logs").glob("*.log"))[-6:]:
+        lines = file.read_text(errors="replace")[-200000:].splitlines()
+        safe = ["[credential-related line redacted]" if re.search("password|authorization|token|cookie|secret", line, re.I) or any(value in line for value in sensitive) else line for line in lines]
+        (evidence / ("Virillio-" + file.name)).write_text("\n".join(safe), encoding="utf-8")
+    report["startupDiagnostics"] = {"privateRegistrationExists": (profile / "backend/state/opencode/server.json").is_file(), "stagedMemoryRuntimeExists": (profile / "memory-runtime").is_dir()}
 
 def check(name, condition, **details):
     report["checks"].append({"name": name, "passed": bool(condition), **details})
@@ -233,6 +247,14 @@ sentinels = []
 try:
     check("Exact candidate checksum", digest(candidate) == expected)
     check("Clean disposable host", not registrations())
+    if scenario == "legacy":
+        legacy = root / "Virillio-affected-0.1.2.exe"
+        urllib.request.urlretrieve("https://github.com/nikolaivintenJohansen/virillio-code-releases/releases/download/v0.1.2-windows-beta.2/Virillio-Code-Setup.exe", legacy)
+        check("Affected installer checksum", digest(legacy) == "655fad01a7dfdd28fcdc29ccc161fea87d7a8e65a390262612d28b385554ed09")
+        # This known-unsafe release runs only on this disposable empty host.
+        # OpenCode is installed afterward to create a real mixed legacy folder.
+        run_installer(legacy, ["/S", "/currentuser"], "Affected Virillio installation")
+        check("Real legacy registration present", any(r["PSChildName"].strip("{}").lower() == "abe31ce7-a3ec-561f-b166-ddb0919b6461" for r in registrations()))
     for name, url, expected_hash in [
         ("OpenCode", "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-win-x64.exe", "3bd1a81d8fcb377a6bda60a9abf8d412aca1c9c702218ddbbdf7c7b09deaa739"),
         ("Freebuff", "https://github.com/CodebuffAI/codebuff-community/releases/download/freebuff-desktop-v0.0.138/Freebuff-0.0.138-win-x64-baseline.exe", "a9cb382379d7a8cbfa3e13a81efd793244c8022b43e6ff0792f0e49d144e785b"),
@@ -289,6 +311,10 @@ try:
     install_root = executable.parent
     check("Dedicated installation directory", install_root.name == "virillio-code", path=str(install_root))
     check("New installer identity", registration["PSChildName"].strip("{}").lower() == "a3f321ba-0e54-5dc6-9826-c36c4c1482bf")
+    if scenario == "legacy":
+        check("Verified legacy registration retired", not any(r["PSChildName"].strip("{}").lower() == "abe31ce7-a3ec-561f-b166-ddb0919b6461" for r in registrations()))
+        backups = list((Path(os.environ["APPDATA"]) / "io.virillio.code.desktop/installer-recovery").glob("legacy-*.json"))
+        check("Legacy registration backup preserved", len(backups) == 1 and any("abe31ce7-a3ec-561f-b166-ddb0919b6461" in key for key in json.loads(backups[0].read_text(encoding="utf-8-sig"))))
     windows = wait_for_window(install_root, 300)
     check("Installer automatically launches visible Virillio", bool(windows), windows=windows)
     screenshot("Virillio-auto-launch")
@@ -300,6 +326,14 @@ try:
     running = subprocess.run([str(candidate), "/S"], env=env, timeout=600)
     check("Silent running-app refusal", running.returncode == 10, exitCode=running.returncode)
     compare_foreign(before, "after-running-refusal")
+    unsafe = subprocess.run([str(candidate), "/S", "/D=" + str(foreign["OpenCode"]["root"])], env=env, timeout=120)
+    check("Real installer refuses a foreign destination", unsafe.returncode == 40, exitCode=unsafe.returncode)
+    junction = root / "junction-fixture/virillio-code"
+    junction.parent.mkdir()
+    ps("New-Item -ItemType Junction -Path '" + str(junction).replace("'", "''") + "' -Target '" + str(foreign["OpenCode"]["root"]).replace("'", "''") + "' | Out-Null")
+    unsafe = subprocess.run([str(candidate), "/S", "/D=" + str(junction)], env=env, timeout=120)
+    check("Real installer refuses a junction destination", unsafe.returncode == 40, exitCode=unsafe.returncode)
+    compare_foreign(before, "after-unsafe-destinations")
     close_app(install_root)
     run_installer(candidate, ["/S"], "Virillio silent reinstall")
     compare_foreign(before, "after-reinstall")
@@ -314,21 +348,34 @@ try:
     close_app(install_root)
     unknown = install_root / "user-created-preserve.txt"
     unknown.write_text("Preserve unknown files.\n")
+    manifest = json.loads((install_root / ".virillio-install.json").read_text(encoding="utf-8-sig"))
+    modified = install_root / next(item["path"] for item in manifest["files"] if item["path"].lower().endswith(".txt"))
+    with modified.open("ab") as stream:
+        stream.write(b"\nDisposable acceptance test: preserve this user modification.\n")
+    modified_hash = digest(modified)
+    refused = subprocess.run([str(candidate), "/S"], env=env, timeout=600)
+    check("Real installer refuses to overwrite a modified file", refused.returncode == 40, exitCode=refused.returncode)
     uninstaller = next(install_root.glob("Uninstall*.exe"))
     run_installer(uninstaller, ["/S"], "Virillio uninstall")
     deadline = time.monotonic() + 300
-    while executable.exists() and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
+        registered = any(r["PSChildName"].strip("{}").lower() == "a3f321ba-0e54-5dc6-9826-c36c4c1482bf" for r in registrations())
+        if not executable.exists() and not registered:
+            break
         time.sleep(2)
     check("Owned executable removed", not executable.exists())
+    check("New uninstaller completed registry cleanup", not registered)
     check("Unknown installation file preserved", unknown.read_text() == "Preserve unknown files.\n")
+    check("Modified owned file preserved", modified.is_file() and digest(modified) == modified_hash)
     compare_foreign(before, "after-uninstall")
-    report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, limitations=["Third-party applications remained at initial unauthenticated screens with application network access blocked to prevent self-updates; no coding workload was submitted.", "Freebuff ran from its official extracted application payload because its own installer crashes in System.dll on this runner.", "Affected-release recovery, WSL, reboot and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
+    report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, legacyRecoveryTested=scenario == "legacy", limitations=["Third-party applications remained at initial unauthenticated screens with application network access blocked to prevent self-updates; no coding workload was submitted.", "Freebuff ran from its official extracted application payload because its own installer crashes in System.dll on this runner.", "WSL, reboot, cancellation and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
 except Exception as error:
     report.update(status="failed", error=str(error))
     try:
         screenshot("failure")
         report["failureProcesses"] = processes()
         report["failureRegistrations"] = registrations()
+        save_startup_diagnostics()
     except Exception as capture_error:
         report["captureError"] = str(capture_error)
     try:
