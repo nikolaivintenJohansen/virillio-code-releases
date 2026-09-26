@@ -13,6 +13,7 @@ import sqlite3
 import time
 import urllib.parse
 import urllib.request
+import winreg
 
 assert os.name == "nt" and os.environ.get("GITHUB_ACTIONS") == "true"
 assert os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
@@ -20,7 +21,7 @@ root = Path(os.environ["RUNNER_TEMP"]) / "virillio-acceptance"
 evidence = root / "evidence"
 evidence.mkdir(exist_ok=True)
 candidate = root / "Virillio-Code-0.1.3-x64-Setup.exe"
-expected = "cb6892e99244b6aee7e189059220b07aad32361980b6cac632e86eac5f1a7a12"
+expected = "8d990f1cc879e77499312d702a69b8e40be39def0b3b68caaa5ec806f19c38f0"
 scenario = os.environ.get("VIRILLIO_ACCEPTANCE_SCENARIO", "fresh")
 assert scenario in ("fresh", "legacy")
 report = {"status": "running", "installerSHA256": expected, "host": "disposable-github-windows-2025", "scenario": scenario, "checks": []}
@@ -63,6 +64,22 @@ def ps(script, timeout=60):
 def registrations():
     data = ps("$items=@('HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*') | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } | Where-Object { $_.DisplayName -match 'Virillio|OpenCode|Freebuff' } | Select-Object PSChildName,DisplayName,DisplayVersion,DisplayIcon,InstallLocation,UninstallString,Publisher; ConvertTo-Json -InputObject @($items) -Depth 4")
     return json.loads(data)
+
+def legacy_registry_diagnostics(label):
+    result = {}
+    guid = "abe31ce7-a3ec-561f-b166-ddb0919b6461"
+    for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+        for path in ("Software\\" + guid, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + guid):
+            key_label = str(view) + ":" + path
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_READ | view) as key:
+                    subkeys, values, _ = winreg.QueryInfoKey(key)
+                    result[key_label] = {"subkeys": subkeys, "values": [winreg.EnumValue(key, i) for i in range(values)]}
+            except FileNotFoundError:
+                result[key_label] = "absent"
+    result["backups"] = {p.name: json.loads(p.read_text(encoding="utf-8-sig")) for p in (Path(os.environ["APPDATA"]) / "io.virillio.code.desktop/installer-recovery").glob("legacy-*.json")}
+    (evidence / (label + "-legacy-registry.json")).write_text(json.dumps(result, indent=2))
+    print(label + " legacy registry: " + json.dumps(result), flush=True)
 
 def processes():
     return json.loads(ps("$items=Get-Process | Where-Object { $_.Path } | ForEach-Object { [pscustomobject]@{pid=$_.Id;path=$_.Path;start=$_.StartTime.ToUniversalTime().ToString('o');title=$_.MainWindowTitle;window=$_.MainWindowHandle.ToInt64()} }; ConvertTo-Json -InputObject @($items)"))
@@ -302,6 +319,8 @@ try:
         database.execute("INSERT INTO preservation_test VALUES ('must remain untouched')")
     sentinels.append(inherited_database)
     env.update(OPENCODE_DB=str(inherited_database), XDG_DATA_HOME=str(Path.home() / ".local/share"), XDG_CONFIG_HOME=str(Path.home() / ".config"), XDG_CACHE_HOME=str(Path.home() / ".cache"), XDG_STATE_HOME=str(Path.home() / ".local/state"))
+    if scenario == "legacy":
+        legacy_registry_diagnostics("before")
     before = snapshot_foreign("before")
     check("Both foreign applications are running", all(before[name]["processes"] for name in foreign))
     # Default interactive one-click install covers the original erroneous running-app prompt.
@@ -312,6 +331,7 @@ try:
     check("Dedicated installation directory", install_root.name == "virillio-code", path=str(install_root))
     check("New installer identity", registration["PSChildName"].strip("{}").lower() == "a3f321ba-0e54-5dc6-9826-c36c4c1482bf")
     if scenario == "legacy":
+        legacy_registry_diagnostics("after-install")
         check("Verified legacy registration retired", not any(r["PSChildName"].strip("{}").lower() == "abe31ce7-a3ec-561f-b166-ddb0919b6461" for r in registrations()))
         backups = list((Path(os.environ["APPDATA"]) / "io.virillio.code.desktop/installer-recovery").glob("legacy-*.json"))
         check("Legacy registration backup preserved", len(backups) == 1 and any("abe31ce7-a3ec-561f-b166-ddb0919b6461" in key for key in json.loads(backups[0].read_text(encoding="utf-8-sig"))))
