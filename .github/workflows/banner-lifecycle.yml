@@ -1,0 +1,32 @@
+name: Installer banner lifecycle regression
+on:
+  push:
+    branches: [windows-acceptance]
+    paths: ['.github/workflows/banner-lifecycle.yml', '.github/banner-lifecycle.py']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download exact diagnostic probes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $destination=Join-Path $env:RUNNER_TEMP 'banner-lifecycle'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          gh release download v0.1.3-windows-beta.3 --repo nikolaivintenJohansen/virillio-code-releases --pattern 'banner-*.exe' --dir $destination
+          if ($LASTEXITCODE -ne 0) { throw 'Probe download failed' }
+      - name: Exercise baseline and corrected banner shutdown
+        run: python .github/banner-lifecycle.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: banner-lifecycle-evidence
+          path: ${{ runner.temp }}/banner-lifecycle/result.json
+          retention-days: 7
