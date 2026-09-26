@@ -2,7 +2,7 @@ import hashlib,json,os,subprocess,time
 from pathlib import Path
 assert os.name=='nt' and os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
 root=Path(os.environ['RUNNER_TEMP'])/'banner-lifecycle'
-rows=[{'file': 'banner-baseline.exe', 'sha256': 'ba6a276bd799a871d98491cb663c7a9785b1fe38fa4d6c73797c5afd811c8197', 'bytes': 43529}, {'file': 'banner-pinned.exe', 'sha256': 'c6182f80d33dc305be228fcb8bfcfc5f53e4ac5e2623b31ed141290a2a1779f3', 'bytes': 50597}]
+rows=[{'file': 'banner-actual.exe', 'sha256': 'c646c456047694ea22b53c0fea8c52514747e83161441832e64182fbdb026443', 'bytes': 50662}]
 result={'status':'running','runs':[]}
 for row in rows:
  file=root/row['file']
@@ -15,7 +15,7 @@ for row in rows:
   (root/'result.json').write_text(json.dumps(result,indent=2))
   print(json.dumps(outcome),flush=True)
 result['baselineFailures']=sum(r['exitCode']!=0 for r in result['runs'] if r['file']=='banner-baseline.exe')
-result['fixedFailures']=sum(r['exitCode']!=0 for r in result['runs'] if r['file']=='banner-pinned.exe')
+result['fixedFailures']=sum(r['exitCode']!=0 for r in result['runs'] if r['file']=='banner-actual.exe')
 result['status']='passed' if result['fixedFailures']==0 else 'failed'
 (root/'result.json').write_text(json.dumps(result,indent=2))
 print(json.dumps({k:v for k,v in result.items() if k!='runs'}),flush=True)
