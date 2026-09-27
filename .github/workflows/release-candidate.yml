@@ -19,10 +19,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r7.tar.gz
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r8.tar.gz
           if ($LASTEXITCODE) { throw 'Source download failed' }
-          if ((Get-FileHash source-0.1.4-r7.tar.gz).Hash.ToLowerInvariant() -ne '4fc44a3b466988fe1d6eaa685af9e7efac48d1a808054d70ea7bbb4fe353c50f') { throw 'Source hash mismatch' }
-          tar -xzf source-0.1.4-r7.tar.gz
+          if ((Get-FileHash source-0.1.4-r8.tar.gz).Hash.ToLowerInvariant() -ne 'f4da9ffedbabf90df9504fe04300a5aa2ef2a67b82273533c00e4f122bd22606') { throw 'Source hash mismatch' }
+          tar -xzf source-0.1.4-r8.tar.gz
           if ($LASTEXITCODE) { throw 'Source extraction failed' }
       - uses: oven-sh/setup-bun@v2
         with:
