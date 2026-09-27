@@ -6,48 +6,7 @@ on:
 permissions:
   contents: read
 jobs:
-  linux-cli:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            arch: x64
-            directory: opencode-linux-x64-baseline
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-            directory: opencode-linux-arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - name: Download frozen private source
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r3.tar.gz
-          echo '7e140db069bf1ce490b3412676db7943bf68f096cfbdab05f3440f4b2d639de8  source-0.1.4-r3.tar.gz' | sha256sum -c
-          tar -xzf source-0.1.4-r3.tar.gz
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: bun install --frozen-lockfile
-      - name: Build WSL runtime from frozen source
-        working-directory: packages/opencode
-        env:
-          OPENCODE_CHANNEL: prod
-          OPENCODE_VERSION: 1.18.21
-        run: bun script/build.ts --single --baseline --skip-install --skip-embed-web-ui
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wsl-${{ matrix.arch }}
-          path: packages/opencode/dist/${{ matrix.directory }}/bin/opencode
   windows:
-    needs: linux-cli
     runs-on: windows-2025
     timeout-minutes: 70
     permissions:
@@ -77,10 +36,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: wsl-x64
+          run-id: 36286707024
+          github-token: ${{ github.token }}
           path: .wsl/x64
       - uses: actions/download-artifact@v4
         with:
           name: wsl-arm64
+          run-id: 36286707024
+          github-token: ${{ github.token }}
           path: .wsl/arm64
       - run: bun install --frozen-lockfile
       - name: Build and test native candidate
@@ -121,6 +84,10 @@ jobs:
           Push-Location packages/desktop
           bun typecheck
           if ($LASTEXITCODE) { throw 'Typecheck failed' }
+          # Windows PowerShell children must not inherit PowerShell Core modules.
+          $env:PSModulePath = "$env:WINDIR\System32\WindowsPowerShell\v1.0\Modules;$env:ProgramFiles\WindowsPowerShell\Modules"
+          powershell.exe -NoProfile -NonInteractive -Command "Get-Command Get-FileHash | Select-Object Name, Source"
+          if ($LASTEXITCODE) { throw 'Windows PowerShell module path is invalid' }
           bun test src/main/account-controller.test.ts src/main/account-storage.test.ts scripts/windows-installer.test.ts scripts/installer-guard.test.ts
           if ($LASTEXITCODE) { throw 'Desktop tests failed' }
           bun run package:win:release
