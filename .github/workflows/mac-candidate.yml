@@ -1,0 +1,56 @@
+name: Repackage unpublished Mac 0.1.4 candidate
+on:
+  push:
+    branches: [release-candidate]
+    paths: ['.github/workflows/mac-candidate.yml']
+permissions:
+  contents: read
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - name: Download checksum-verified inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r5.tar.gz --pattern Virillio-Code-0.1.4-mac-arm64-r4.dmg
+          echo '9d142d600208a13f385c313fb2d92adcfeb5015ec68445f17bbd70e9764c3ff7  source-0.1.4-r5.tar.gz' | shasum -a 256 -c
+          echo '523085768bd68666e8c4d09b5bbed0832caa9d32422c8803f513fcf835d84ad5  Virillio-Code-0.1.4-mac-arm64-r4.dmg' | shasum -a 256 -c
+          tar -xzf source-0.1.4-r5.tar.gz
+      - name: Update validated runtime and assemble review DMG
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mounted" "$RUNNER_TEMP/assembled" output
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/mounted" Virillio-Code-0.1.4-mac-arm64-r4.dmg
+          ditto "$RUNNER_TEMP/mounted/Virillio Code.app" "$RUNNER_TEMP/assembled/Virillio Code.app"
+          hdiutil detach "$RUNNER_TEMP/mounted"
+          app="$RUNNER_TEMP/assembled/Virillio Code.app"
+          bundle="$app/Contents/Resources/memory-runtime"
+          export VIRILLIO_REPACK_BUNDLE="$bundle"
+          shasum -a 256 "$app/Contents/Resources/app.asar" > output/app-asar-before.txt
+          cp packages/memory-runtime/worker.py "$bundle/worker.py"
+          cd packages/memory-runtime
+          "$bundle/python/bin/python3" -B -c 'from pathlib import Path; import os, build; build.validate_bundle("aarch64-apple-darwin", Path(os.environ["VIRILLIO_REPACK_BUNDLE"]))'
+          cd ../..
+          cp "$bundle/validation.json" output/memory-validation.json
+          cp "$bundle/manifest.json" output/memory-manifest.json
+          shasum -a 256 "$app/Contents/Resources/app.asar" > output/app-asar-after.txt
+          diff output/app-asar-before.txt output/app-asar-after.txt
+          codesign --force --deep --sign - --preserve-metadata=entitlements,requirements,flags,runtime --timestamp=none "$app"
+          codesign --verify --deep --strict "$app"
+          codesign -dv --verbose=2 "$app" 2> output/signature.txt
+          ln -s /Applications "$RUNNER_TEMP/assembled/Applications"
+          hdiutil create -volname 'Virillio Code 0.1.4' -srcfolder "$RUNNER_TEMP/assembled" -ov -format UDZO output/Virillio-Code-0.1.4-mac-arm64-r5.dmg
+          hdiutil verify output/Virillio-Code-0.1.4-mac-arm64-r5.dmg
+          cd output
+          shasum -a 256 Virillio-Code-0.1.4-mac-arm64-r5.dmg > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-014-final
+          retention-days: 14
+          path: output/
