@@ -2,7 +2,7 @@ name: Unpublished 0.1.4 installer acceptance
 on:
   push:
     branches: [release-candidate]
-    paths: ['.github/workflows/candidate-acceptance.yml']
+    paths: ['.github/workflows/candidate-acceptance.yml', '.github/windows-acceptance/**']
 permissions:
   contents: read
 concurrency:

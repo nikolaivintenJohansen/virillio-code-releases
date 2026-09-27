@@ -40,10 +40,10 @@ def save_startup_diagnostics():
     password = profile / "backend/state/opencode/password"
     secret = password.read_text().strip() if password.is_file() else ""
     sensitive = [secret, base64.b64encode(("opencode:" + secret).encode()).decode()] if secret else []
-    for file in sorted((profile / "logs").glob("*.log"))[-6:]:
+    for file in sorted((profile / "logs").rglob("*.log"))[-6:]:
         lines = file.read_text(errors="replace")[-200000:].splitlines()
         safe = ["[credential-related line redacted]" if re.search("password|authorization|token|cookie|secret", line, re.I) or any(value in line for value in sensitive) else line for line in lines]
-        (evidence / ("Virillio-" + file.name)).write_text("\n".join(safe), encoding="utf-8")
+        (evidence / ("Virillio-" + file.parent.name + "-" + file.name)).write_text("\n".join(safe), encoding="utf-8")
     report["startupDiagnostics"] = {"privateRegistrationExists": (profile / "backend/state/opencode/server.json").is_file(), "stagedMemoryRuntimeExists": (profile / "memory-runtime").is_dir()}
 
 def check(name, condition, **details):
@@ -226,16 +226,38 @@ def close_app(directory):
 
 def verify_private_backend():
     profile = Path(os.environ["APPDATA"]) / "io.virillio.code.desktop/backend"
-    state = profile / "state/opencode/server.json"
+    # Production uses the utility-process sidecar, which has no daemon registration.
+    # First verify the normal auto/shortcut launch, then inspect a test-only local
+    # debugger relaunch through the same renderer IPC used by the application.
     deadline = time.monotonic() + 300
-    while not state.exists() and time.monotonic() < deadline:
+    ready = False
+    while time.monotonic() < deadline:
+        logs = sorted((profile.parent / "logs").rglob("main.log"))
+        text = logs[-1].read_text(errors="replace") if logs else ""
+        if "loading task finished" in text:
+            ready = "sidecar health check failed" not in text and "initialization failed" not in text
+            break
         time.sleep(2)
-    check("Desktop starts a private backend", state.is_file())
-    registration = json.loads(state.read_text())
+    check("Installed app completes normal startup", ready)
+    screenshot("Virillio-default-startup-ready")
+    close_app(install_root)
+    debugger = profile.parent / "DevToolsActivePort"
+    debugger.unlink(missing_ok=True)
+    child = subprocess.Popen([str(executable), "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 60
+    while not debugger.is_file() and time.monotonic() < deadline:
+        time.sleep(1)
+    check("Test-only local renderer inspection available", debugger.is_file())
+    result = subprocess.run(["node", str(Path(__file__).with_name("desktop-connection.mjs")), str(debugger)], capture_output=True, text=True, timeout=100)
+    check("Installed renderer initializes its actual sidecar", result.returncode == 0)
+    initialized = json.loads(result.stdout)
+    registration = initialized["connection"]
     address = registration["url"]
+    check("Fresh installed app requires sign-in", "Sign in to Virillio" in initialized["text"])
+    check("Installed app shows payments unavailable notice", "not currently available" in initialized["text"])
     check("Private backend binds localhost", urllib.parse.urlsplit(address).hostname in ("localhost", "127.0.0.1", "::1"))
-    secret = (state.parent / "password").read_text().strip()
-    headers = {"Authorization": "Basic " + base64.b64encode(("opencode:" + secret).encode()).decode(), "Content-Type": "application/json"}
+    secret = registration["password"]
+    headers = {"Authorization": "Basic " + base64.b64encode((registration["username"] + ":" + secret).encode()).decode(), "Content-Type": "application/json"}
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     def request(endpoint, method="GET", body=None):
         req = urllib.request.Request(address + endpoint, method=method, headers=headers, data=None if body is None else json.dumps(body).encode())
@@ -256,7 +278,7 @@ def verify_private_backend():
     check("Installed terminal executes Git", current["status"] == "exited" and current["exitCode"] == 0 and (project / "terminal-proof.txt").read_text().startswith("git version"))
     request("/api/pty/" + terminal["id"] + query, "DELETE")
     check("Private database created", (profile / "data/opencode/opencode.db").is_file())
-    report["privateBackend"] = {"pid": registration["pid"], "statePath": str(state), "healthy": True, "terminalPassed": True}
+    report["privateBackend"] = {"mode": "production desktop sidecar", "inspectionAppPID": child.pid, "healthy": True, "terminalPassed": True, "testOnlyLocalDebugger": True}
     save()
 
 foreign = {}
@@ -392,6 +414,7 @@ try:
     check("Unknown installation file preserved", unknown.read_text() == "Preserve unknown files.\n")
     check("Modified owned file preserved", modified.is_file() and digest(modified) == modified_hash)
     compare_foreign(before, "after-uninstall")
+    save_startup_diagnostics()
     report.update(status="passed", realInstallerExecuted=True, realOpenCodeAndFreebuffCoexistence=True, legacyRecoveryTested=scenario == "legacy", limitations=["Third-party applications remained at initial unauthenticated screens with application network access blocked to prevent self-updates; no coding workload was submitted.", "Freebuff ran from its official extracted application payload because its own installer crashes in System.dll on this runner.", "WSL, reboot, cancellation and channel coexistence are not covered by this run.", "This runner is Windows Server 2025, not the owner's Windows 11 Lenovo."])
 except Exception as error:
     report.update(status="failed", error=str(error))
