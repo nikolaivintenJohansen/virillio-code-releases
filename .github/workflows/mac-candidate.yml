@@ -45,7 +45,10 @@ jobs:
           codesign --verify --deep --strict "$app"
           codesign -dv --verbose=2 "$app" 2> output/signature.txt
           ln -s /Applications "$RUNNER_TEMP/assembled/Applications"
-          hdiutil create -volname 'Virillio Code 0.1.4' -srcfolder "$RUNNER_TEMP/assembled" -ov -format UDZO output/Virillio-Code-0.1.4-mac-arm64-r5.dmg
+          for attempt in 1 2 3; do
+            if hdiutil create -volname 'Virillio Code 0.1.4' -srcfolder "$RUNNER_TEMP/assembled" -fs HFS+ -ov -format UDZO output/Virillio-Code-0.1.4-mac-arm64-r5.dmg; then break; fi
+            sleep 10
+          done
           hdiutil verify output/Virillio-Code-0.1.4-mac-arm64-r5.dmg
           cd output
           shasum -a 256 Virillio-Code-0.1.4-mac-arm64-r5.dmg > SHA256SUMS
