@@ -19,10 +19,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r4.tar.gz
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r5.tar.gz
           if ($LASTEXITCODE) { throw 'Source download failed' }
-          if ((Get-FileHash source-0.1.4-r4.tar.gz).Hash.ToLowerInvariant() -ne 'c0b9493b29466aefc6aa33bacf2879bde7fd570d5dbee5fda5add140f9271353') { throw 'Source hash mismatch' }
-          tar -xzf source-0.1.4-r4.tar.gz
+          if ((Get-FileHash source-0.1.4-r5.tar.gz).Hash.ToLowerInvariant() -ne '9d142d600208a13f385c313fb2d92adcfeb5015ec68445f17bbd70e9764c3ff7') { throw 'Source hash mismatch' }
+          tar -xzf source-0.1.4-r5.tar.gz
           if ($LASTEXITCODE) { throw 'Source extraction failed' }
       - uses: oven-sh/setup-bun@v2
         with:
@@ -96,7 +96,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Packaging failed' }
           Get-ChildItem dist/*.exe | Get-FileHash -Algorithm SHA256 | Format-List | Out-File dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: windows-014-candidate
           retention-days: 14
