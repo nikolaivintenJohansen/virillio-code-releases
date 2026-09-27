@@ -77,11 +77,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: wsl-x64
-          path: packages/opencode/dist/opencode-linux-x64-baseline/bin
+          path: .wsl/x64
       - uses: actions/download-artifact@v4
         with:
           name: wsl-arm64
-          path: packages/opencode/dist/opencode-linux-arm64/bin
+          path: .wsl/arm64
       - run: bun install --frozen-lockfile
       - name: Build and test native candidate
         env:
@@ -100,6 +100,9 @@ jobs:
           bun script/build.ts --single --baseline --skip-install --skip-embed-web-ui
           if ($LASTEXITCODE) { throw 'Terminal CLI failed' }
           Pop-Location
+          New-Item -ItemType Directory -Force packages/opencode/dist/opencode-linux-x64-baseline/bin, packages/opencode/dist/opencode-linux-arm64/bin | Out-Null
+          Copy-Item .wsl/x64/opencode packages/opencode/dist/opencode-linux-x64-baseline/bin/opencode
+          Copy-Item .wsl/arm64/opencode packages/opencode/dist/opencode-linux-arm64/bin/opencode
           Push-Location packages/desktop
           bun typecheck
           if ($LASTEXITCODE) { throw 'Typecheck failed' }
