@@ -1,0 +1,120 @@
+name: Build unpublished Virillio 0.1.4 candidates
+on:
+  push:
+    branches: [release-candidate]
+    paths: ['.github/workflows/release-candidate.yml']
+permissions:
+  contents: read
+jobs:
+  linux-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+            directory: opencode-linux-x64-baseline
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            directory: opencode-linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Download frozen private source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4.tar.gz
+          echo '8ecf47babde7154118de72591d924eb9b7d1c0f902ccdd9e594d56cf869c3360  source-0.1.4.tar.gz' | sha256sum -c
+          tar -xzf source-0.1.4.tar.gz
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Build WSL runtime from frozen source
+        working-directory: packages/opencode
+        env:
+          OPENCODE_CHANNEL: prod
+          OPENCODE_VERSION: 1.18.21
+        run: bun script/build.ts --single --baseline --skip-install --skip-embed-web-ui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wsl-${{ matrix.arch }}
+          path: packages/opencode/dist/${{ matrix.directory }}/bin/opencode
+  windows:
+    needs: linux-cli
+    runs-on: windows-2025
+    timeout-minutes: 70
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Download frozen private source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4.tar.gz
+          if ($LASTEXITCODE) { throw 'Source download failed' }
+          if ((Get-FileHash source-0.1.4.tar.gz).Hash.ToLowerInvariant() -ne '8ecf47babde7154118de72591d924eb9b7d1c0f902ccdd9e594d56cf869c3360') { throw 'Source hash mismatch' }
+          tar -xzf source-0.1.4.tar.gz
+          if ($LASTEXITCODE) { throw 'Source extraction failed' }
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wsl-x64
+          path: packages/opencode/dist/opencode-linux-x64-baseline/bin
+      - uses: actions/download-artifact@v4
+        with:
+          name: wsl-arm64
+          path: packages/opencode/dist/opencode-linux-arm64/bin
+      - run: bun install --frozen-lockfile
+      - name: Build and test native candidate
+        env:
+          OPENCODE_CHANNEL: prod
+          OPENCODE_VERSION: 1.18.21
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GITHUB_ACTIONS = 'false'
+          Push-Location packages/cli
+          bun script/build.ts --single --baseline --skip-install
+          if ($LASTEXITCODE) { throw 'Service CLI failed' }
+          Pop-Location
+          $env:OPENCODE_DESKTOP_CLI_PATH = Join-Path $pwd 'packages/cli/dist/cli-windows-x64-baseline/bin/lildax.exe'
+          Push-Location packages/opencode
+          bun script/build.ts --single --baseline --skip-install --skip-embed-web-ui
+          if ($LASTEXITCODE) { throw 'Terminal CLI failed' }
+          Pop-Location
+          Push-Location packages/desktop
+          bun typecheck
+          if ($LASTEXITCODE) { throw 'Typecheck failed' }
+          bun test src/main/account-controller.test.ts src/main/account-storage.test.ts scripts/windows-installer.test.ts scripts/installer-guard.test.ts
+          if ($LASTEXITCODE) { throw 'Desktop tests failed' }
+          bun run package:win:release
+          if ($LASTEXITCODE) { throw 'Packaging failed' }
+          Get-ChildItem dist/*.exe | Get-FileHash -Algorithm SHA256 | Format-List | Out-File dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-014-candidate
+          retention-days: 14
+          path: |
+            packages/desktop/dist/*.exe
+            packages/desktop/dist/*.txt
+            packages/desktop/dist/*.yml
+            packages/desktop/resources/windows/generated/*.json
