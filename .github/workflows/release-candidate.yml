@@ -19,10 +19,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r6.tar.gz
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r7.tar.gz
           if ($LASTEXITCODE) { throw 'Source download failed' }
-          if ((Get-FileHash source-0.1.4-r6.tar.gz).Hash.ToLowerInvariant() -ne 'dc15a0c4471bcd9caf7ecc6e8836bee6e3225021c5a8b6abf9f5baa6c5d49893') { throw 'Source hash mismatch' }
-          tar -xzf source-0.1.4-r6.tar.gz
+          if ((Get-FileHash source-0.1.4-r7.tar.gz).Hash.ToLowerInvariant() -ne '4fc44a3b466988fe1d6eaa685af9e7efac48d1a808054d70ea7bbb4fe353c50f') { throw 'Source hash mismatch' }
+          tar -xzf source-0.1.4-r7.tar.gz
           if ($LASTEXITCODE) { throw 'Source extraction failed' }
       - uses: oven-sh/setup-bun@v2
         with:
@@ -60,6 +60,28 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: windows-bun-1.3.14-${{ hashFiles('bun.lock') }}
+      - name: Compile installer hooks before packaging
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tools = Join-Path $env:RUNNER_TEMP 'nsis-preflight'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          foreach ($item in @(
+            @{ Name='nsis'; Version='3.0.4.1'; Hash='9877df902530f96357d13a7a31ae2b9df67f48b11ffc9a1700a7c961574ec5fa' },
+            @{ Name='nsis-resources'; Version='3.4.1'; Hash='593a9a92ef958321293ac6a2ee61e64bf1bd543142a5bd6b3d310709cc924103' }
+          )) {
+            $tag = "$($item.Name)-$($item.Version)"
+            $archive = Join-Path $tools "$tag.7z"
+            Invoke-WebRequest "https://github.com/electron-userland/electron-builder-binaries/releases/download/$tag/$tag.7z" -OutFile $archive
+            if ((Get-FileHash $archive).Hash.ToLowerInvariant() -ne $item.Hash) { throw 'NSIS checksum mismatch' }
+            & 7z x $archive "-o$(Join-Path $tools $item.Name)" -y | Out-Null
+            if ($LASTEXITCODE) { throw 'NSIS extraction failed' }
+          }
+          $env:VIRILLIO_TEST_NSIS_DIR = Join-Path $tools 'nsis'
+          $env:VIRILLIO_TEST_NSIS_PLUGINS = Join-Path $tools 'nsis-resources/plugins/x86-unicode'
+          Push-Location packages/desktop
+          bun test scripts/installer-nsis.test.ts
+          if ($LASTEXITCODE) { throw 'Native NSIS compile check failed' }
+          Pop-Location
       - name: Build and test native candidate
         env:
           OPENCODE_CHANNEL: prod
