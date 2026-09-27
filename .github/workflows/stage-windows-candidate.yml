@@ -1,0 +1,24 @@
+name: Stage reviewed Windows candidate privately
+on:
+  push:
+    branches: [release-candidate]
+    paths: ['.github/workflows/stage-windows-candidate.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify and attach to the existing draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=nikolaivintenJohansen/virillio-code-releases
+          test "$(gh release view v0.1.4-candidate --repo "$repo" --json isDraft --jq .isDraft)" = true
+          gh run download 36290481150 --repo "$repo" --name windows-014-candidate --dir output
+          cd output/dist
+          echo '4c7ff9287faa0d37a0d7f0ed57c0d894050f30a8426d0c6971b36937067f39b0  Virillio-Code-0.1.4-x64-Setup.exe' | sha256sum -c
+          gh release upload v0.1.4-candidate Virillio-Code-0.1.4-x64-Setup.exe --repo "$repo"

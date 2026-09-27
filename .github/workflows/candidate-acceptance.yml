@@ -1,0 +1,56 @@
+name: Unpublished 0.1.4 installer acceptance
+on:
+  push:
+    branches: [release-candidate]
+    paths: ['.github/workflows/candidate-acceptance.yml']
+permissions:
+  contents: read
+concurrency:
+  group: candidate-014-installer-acceptance
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [fresh, legacy]
+    # GitHub requires push permission to see draft releases. The token is passed
+    # only to the download step and is removed before application execution.
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the exact unpublished installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destination = Join-Path $env:RUNNER_TEMP 'virillio-acceptance'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          gh run download 36290481150 --repo nikolaivintenJohansen/virillio-code-releases --name windows-014-candidate --dir $destination
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate download failed' }
+          Copy-Item (Join-Path $destination 'dist/Virillio-Code-0.1.4-x64-Setup.exe') $destination
+          $hash = (Get-FileHash -LiteralPath (Join-Path $destination 'Virillio-Code-0.1.4-x64-Setup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '4c7ff9287faa0d37a0d7f0ed57c0d894050f30a8426d0c6971b36937067f39b0') { throw 'Candidate checksum mismatch' }
+      - name: Exercise real installers and applications
+        shell: pwsh
+        env:
+          VIRILLIO_ACCEPTANCE_SCENARIO: ${{ matrix.scenario }}
+          VIRILLIO_CANDIDATE_SHA256: 4c7ff9287faa0d37a0d7f0ed57c0d894050f30a8426d0c6971b36937067f39b0
+        run: |
+          $env:PSModulePath = "$env:WINDIR\System32\WindowsPowerShell\v1.0\Modules;$env:ProgramFiles\WindowsPowerShell\Modules"
+          python .github/windows-acceptance/candidate-coexistence.py
+      - name: Retain test evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-014-acceptance-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/virillio-acceptance/evidence/
+          if-no-files-found: warn
+          retention-days: 7
