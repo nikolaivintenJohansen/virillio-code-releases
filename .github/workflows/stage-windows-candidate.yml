@@ -18,8 +18,8 @@ jobs:
           set -euo pipefail
           repo=nikolaivintenJohansen/virillio-code-releases
           test "$(gh release view v0.1.4-candidate --repo "$repo" --json isDraft --jq .isDraft)" = true
-          gh run download 36292519574 --repo "$repo" --name windows-014-candidate --dir output
+          gh run download 36294237715 --repo "$repo" --name windows-014-candidate --dir output
           cd output/dist
-          echo '803fd071242bbde805c434c72c4a065e2ca3bb746293b9b08b06a7095b450708  Virillio-Code-0.1.4-x64-Setup.exe' | sha256sum -c
-          mv Virillio-Code-0.1.4-x64-Setup.exe Virillio-Code-0.1.4-x64-r8-Setup.exe
-          gh release upload v0.1.4-candidate Virillio-Code-0.1.4-x64-r8-Setup.exe --repo "$repo"
+          echo 'db0bfbe52e9e947eed3f87bf95e4dc37d9f38adeb90bfcd00e936f864502aa36  Virillio-Code-0.1.4-x64-Setup.exe' | sha256sum -c
+          mv Virillio-Code-0.1.4-x64-Setup.exe Virillio-Code-0.1.4-x64-r9-Setup.exe
+          gh release upload v0.1.4-candidate Virillio-Code-0.1.4-x64-r9-Setup.exe --repo "$repo"
