@@ -1,0 +1,24 @@
+name: Stage reviewed Mac candidate privately
+on:
+  push:
+    branches: [release-candidate]
+    paths: ['.github/workflows/stage-mac-candidate.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify and attach to the existing draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo=nikolaivintenJohansen/virillio-code-releases
+          test "$(gh release view v0.1.4-candidate --repo "$repo" --json isDraft --jq .isDraft)" = true
+          gh run download 36289097063 --repo "$repo" --name mac-014-final --dir output
+          cd output
+          echo '7b07ee35421627e842c6501499e4ecabb5f11ba0257d42a822dd31cb16ce7923  Virillio-Code-0.1.4-mac-arm64-r5.dmg' | sha256sum -c
+          gh release upload v0.1.4-candidate Virillio-Code-0.1.4-mac-arm64-r5.dmg --repo "$repo"
