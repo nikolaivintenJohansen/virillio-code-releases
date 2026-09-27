@@ -26,9 +26,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4.tar.gz
-          echo '8ecf47babde7154118de72591d924eb9b7d1c0f902ccdd9e594d56cf869c3360  source-0.1.4.tar.gz' | sha256sum -c
-          tar -xzf source-0.1.4.tar.gz
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r2.tar.gz
+          echo 'e352b84da44cf9fd485a52a9475a37769eb85e04c03b7f6e0abda38e02ee4fbd  source-0.1.4-r2.tar.gz' | sha256sum -c
+          tar -xzf source-0.1.4-r2.tar.gz
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -60,10 +60,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4.tar.gz
+          gh release download v0.1.4-candidate --repo nikolaivintenJohansen/virillio-code-releases --pattern source-0.1.4-r2.tar.gz
           if ($LASTEXITCODE) { throw 'Source download failed' }
-          if ((Get-FileHash source-0.1.4.tar.gz).Hash.ToLowerInvariant() -ne '8ecf47babde7154118de72591d924eb9b7d1c0f902ccdd9e594d56cf869c3360') { throw 'Source hash mismatch' }
-          tar -xzf source-0.1.4.tar.gz
+          if ((Get-FileHash source-0.1.4-r2.tar.gz).Hash.ToLowerInvariant() -ne 'e352b84da44cf9fd485a52a9475a37769eb85e04c03b7f6e0abda38e02ee4fbd') { throw 'Source hash mismatch' }
+          tar -xzf source-0.1.4-r2.tar.gz
           if ($LASTEXITCODE) { throw 'Source extraction failed' }
       - uses: oven-sh/setup-bun@v2
         with:
